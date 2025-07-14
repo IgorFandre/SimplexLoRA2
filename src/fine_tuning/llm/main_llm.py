@@ -1,0 +1,378 @@
+import random
+import numpy as np
+
+import torch
+import datasets
+import wandb
+
+from loguru import logger
+import peft
+
+import utils
+from utils_llm import DatasetRegistry
+
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+    BitsAndBytesConfig,
+    DataCollatorForLanguageModeling,
+    pipeline,
+)
+
+
+class WeLoreDownstreamFinetuner:
+    """Main class for downstream finetuning with WeLore"""
+
+    def __init__(self, args):
+        self.args = args
+        self.model = None
+        self.tokenizer = None
+        self.builder = None
+        self.setup_logging()
+        self.setup_wandb()
+
+    def setup_logging(self):
+        """Setup logging configuration"""
+        logger.info(f"Starting downstream finetuning for dataset: {self.args.dataset}")
+
+    def setup_wandb(self):
+        """Setup Weights & Biases logging"""
+        if self.args.wandb:
+            wandb.login()
+            wandb.init(name=self.args.name)
+
+    def setup_seeds(self):
+        """Setup random seeds for reproducibility"""
+        torch.manual_seed(self.args.seed)
+        np.random.seed(self.args.seed)
+        random.seed(self.args.seed)
+
+    def print_gpu_info(self):
+        """Print GPU information"""
+        if torch.cuda.is_available():
+            print("~~~~~~~~~~~~~~~ GPU ~~~~~~~~~~~~~~~")
+            for i in range(torch.cuda.device_count()):
+                print(torch.cuda.get_device_name(i))
+        else:
+            print("~~~~~~~~~~~~~~~ USING CPU ~~~~~~~~~~~~~~~")
+
+    def load_model_and_tokenizer(self):
+        """Load model and tokenizer with appropriate configurations"""
+        logger.info("Loading model and tokenizer...")
+
+        # Determine optimal settings based on GPU capability
+        if torch.cuda.get_device_capability()[0] >= 8:
+            attn_implementation = "flash_attention_2"
+            torch_dtype = torch.bfloat16
+        else:
+            attn_implementation = "eager"
+            torch_dtype = torch.float16
+
+        # Setup quantization config
+        bnb_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+            bnb_8bit_compute_dtype=torch_dtype,
+        )
+
+        # Load model
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.args.model,
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+            device_map="auto",
+            quantization_config=bnb_config,
+            attn_implementation=attn_implementation,
+        )
+
+        self.model.seqlen = 1024
+
+        # Load tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.args.model,
+            use_fast=self.args.use_fast_tokenizer,
+            padding_side=self.args.padding_side,
+        )
+        self.tokenizer.pad_token_id = 0
+
+        # Resize token embeddings if necessary
+        embedding_size = self.model.get_input_embeddings().weight.shape[0]
+        if len(self.tokenizer) > embedding_size:
+            self.model.resize_token_embeddings(len(self.tokenizer))
+
+        logger.info("Model and tokenizer loaded successfully.")
+
+    def setup_peft(self):
+        """Setup PEFT (Parameter Efficient Fine-Tuning) adapters"""
+        logger.info("Setting up PEFT adapters...")
+
+        peft_args = utils.get_peft_arguments(self.args)
+        if peft_args is not None:
+            self.model = peft.get_peft_model(self.model, peft_args)
+
+        print(self.model)
+
+        # Print trainable parameters info
+        tr_param_count, all_param_count, tr_persent = utils.print_trainable_params(
+            self.model, verbose=True
+        )
+
+        if self.args.wandb:
+            wandb.log(
+                {
+                    "trainable_params_count": tr_param_count,
+                    "total_param_count": all_param_count,
+                    "trainable_params_percentage": tr_persent
+                }
+            )
+
+    def load_datasets(self):
+        """Load and prepare both training and evaluation datasets"""
+        logger.info("Loading datasets...")
+
+        # Set dataset paths and create builder
+        DatasetRegistry.set_dataset_paths(self.args)
+        self.builder = DatasetRegistry.create_builder(self.args)
+        data = self.builder.get_data()
+
+        # Extract train and eval data
+        train_questions, train_answers = data["train"]
+        eval_questions, eval_answers = data["eval"]
+
+        # Create datasets
+        self.train_dataset = None
+        self.eval_dataset = None
+
+        if train_questions and len(train_questions) > 0:
+            train_dict = {
+                "question": ["Question: " + q for q in train_questions],
+                "response": train_answers,
+                "raw_x": train_questions,
+                "raw_y": train_answers,
+            }
+            self.train_dataset = datasets.Dataset.from_dict(train_dict)
+
+        if eval_questions and len(eval_questions) > 0:
+            eval_dict = {
+                "question": ["Question: " + q for q in eval_questions],
+                "response": eval_answers,
+                "raw_x": eval_questions,
+                "raw_y": eval_answers,
+            }
+            self.eval_dataset = datasets.Dataset.from_dict(eval_dict)
+
+    def prepare_training_dataset(self):
+        """Prepare dataset for training"""
+        if self.train_dataset is None:
+            logger.warning("No training dataset available")
+            return None
+
+        logger.info("Preparing training dataset...")
+        return self.builder.preprocess_dataset(
+            self.tokenizer,
+            self.args.max_seq_length,
+            self.args.seed,
+            self.train_dataset,
+            eval_mode=False,
+        )
+
+    def prepare_evaluation_dataset(self):
+        """Prepare dataset for evaluation"""
+        if self.eval_dataset is None:
+            logger.warning("No evaluation dataset available")
+            return None
+
+        logger.info("Preparing evaluation dataset...")
+        dataset = self.eval_dataset.map(
+            lambda sample: self.builder.create_prompt_formats(sample, eval_mode=True)
+        )
+        return dataset
+
+    def train(self):
+        """Execute training process"""
+        if self.args.do_not_train:
+            logger.info("Training skipped (do_not_train=True)")
+            return
+
+        logger.info(f"Starting training for dataset: {self.args.dataset}")
+
+        # Prepare training dataset
+        train_dataset = self.prepare_training_dataset()
+        if train_dataset is None:
+            logger.error("No training data available")
+            return
+
+        # Prepare evaluation dataset for trainer
+        eval_dataset = self.prepare_evaluation_dataset()
+        if eval_dataset is not None:
+            # Convert evaluation dataset to training format for trainer
+            eval_dataset_for_trainer = self.builder.preprocess_dataset(
+                self.tokenizer,
+                self.args.max_seq_length,
+                self.args.seed,
+                eval_dataset,
+                eval_mode=False,  # Use training format for trainer evaluation
+            )
+        else:
+            eval_dataset_for_trainer = None
+
+        # Setup trainer
+        training_args = TrainingArguments(
+            per_device_train_batch_size=self.args.batch_size,
+            per_device_eval_batch_size=self.args.batch_size,
+            gradient_accumulation_steps=self.args.gradient_accumulation,
+            warmup_steps=self.args.warmup_steps,
+            max_steps=self.args.num_training_steps,
+            learning_rate=self.args.lr,
+            bf16=(self.args.dtype == "bfloat16"),
+            fp16=(self.args.dtype == "float16"),
+            logging_steps=1,
+            output_dir=self.args.save_dir,
+            optim="paged_adamw_8bit",
+            save_steps=self.args.save_every,
+            weight_decay=self.args.weight_decay,
+            dataloader_num_workers=self.args.workers,
+            seed=self.args.seed,
+            eval_strategy=self.args.evaluation_strategy,
+            eval_steps=self.args.eval_steps,
+            run_name=self.args.run_name,
+            logging_dir=f"./src/fine_tuning/llm/{self.args.results_path}",
+            report_to=["wandb"] if self.args.wandb else ["none"],
+        )
+
+        # Add evaluation parameters if we have evaluation dataset
+        if eval_dataset_for_trainer is not None and not self.args.do_not_eval:
+            training_args.eval_steps = self.args.eval_steps
+            training_args.evaluation_strategy = self.args.evaluation_strategy
+            training_args.per_device_eval_batch_size = self.args.batch_size
+
+        trainer = Trainer(
+            model=self.model,
+            train_dataset=train_dataset,
+            eval_dataset=(
+                eval_dataset_for_trainer if not self.args.do_not_eval else None
+            ),
+            args=training_args,
+            data_collator=DataCollatorForLanguageModeling(self.tokenizer, mlm=False),
+        )
+
+        # Clean up memory before training
+        import gc
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Train the model
+        train_result = trainer.train()
+        metrics = train_result.metrics
+        trainer.log_metrics("train", metrics)
+        logger.info(f"Training completed. Metrics: {metrics}")
+
+    def evaluate(self):
+        """Execute evaluation process"""
+        if self.args.do_not_eval:
+            logger.info("Evaluation skipped (do_not_eval=True)")
+            return 0, 0
+
+        logger.info(f"Starting evaluation for dataset: {self.args.dataset}")
+
+        # Prepare evaluation dataset
+        eval_dataset = self.prepare_evaluation_dataset()
+        if eval_dataset is None:
+            logger.error("No evaluation data available")
+            return 0, 0
+
+        # Setup text generation pipeline
+        generator = pipeline(
+            "text-generation",
+            model=self.model,
+            tokenizer=self.tokenizer,
+            return_full_text=False,
+        )
+
+        # Evaluate model
+        correct, total = 0, 0
+
+        logger.info(f"Evaluation sample prompt: {eval_dataset['text'][0]}")
+
+        for i, item in enumerate(eval_dataset):
+            try:
+                # Generate prediction
+                predicted_response = generator(
+                    item["text"],
+                    max_new_tokens=len(item["raw_y"]) + 2,
+                    num_return_sequences=1,
+                )[0]["generated_text"]
+                predicted_response = predicted_response.replace(" ", "").replace(
+                    "\n", ""
+                )
+                item["raw_y"] = item["raw_y"].replace(" ", "").replace("\n", "")
+                # Check if correct answer is in prediction
+                if item["raw_y"] in predicted_response:
+                    correct += 1
+
+                # Debug output
+                print(f">>Prediction<<: {predicted_response}")
+                print(f">>>>Answer<<<<: {item['raw_y']}")
+
+                total += 1
+
+                # Progress update
+                accuracy = (correct / total) * 100 if total > 0 else 0
+                print(f"[{i+1}/{len(eval_dataset)}] Accuracy: {accuracy:.2f}%")
+                print("=" * 50)
+
+            except Exception as e:
+                logger.error(f"Error processing sample {i}: {e}")
+                continue
+
+        return correct, total
+
+    def log_final_results(self, correct, total):
+        """Log final evaluation results"""
+        if total > 0:
+            final_accuracy = (correct / total) * 100
+            logger.info(f"[FINAL] Accuracy: {final_accuracy:.2f}%")
+
+            if self.args.wandb:
+                wandb.log({"final_accuracy": final_accuracy})
+        else:
+            logger.info("No samples were successfully evaluated.")
+
+    def run(self):
+        """Main execution flow"""
+        logger.info("Starting WeLore downstream finetuning pipeline")
+
+        # Setup
+        self.setup_seeds()
+        self.print_gpu_info()
+        logger.info(f"Current device: {torch.cuda.current_device()}")
+
+        # Load model and setup PEFT
+        self.load_model_and_tokenizer()
+        self.setup_peft()
+
+        # Load datasets
+        self.load_datasets()
+
+        # Execute training and evaluation
+        self.train()
+        correct, total = self.evaluate()
+
+        # Log results
+        self.log_final_results(correct, total)
+        logger.info("Pipeline completed successfully")
+
+
+def main(args):
+    """Main entry point"""
+    print("LLM finetuning script")
+
+    # Create and run finetuner
+    finetuner = WeLoreDownstreamFinetuner(args)
+    finetuner.run()
+
+
+if __name__ == "__main__":
+    main(None)

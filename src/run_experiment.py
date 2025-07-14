@@ -1,15 +1,17 @@
 import torch
-import os
 import sys
+
 sys.path.append("src/libsvm")
 sys.path.append("src/cv")
 sys.path.append("src/fine_tuning/glue")
+sys.path.append("src/fine_tuning/llm")
 
 from config import parse_args
 from utils import get_run_name
 from libsvm import main_libsvm
 from cv import main_cv
 from fine_tuning.glue import main_glue
+from fine_tuning.llm import main_llm
 
 if __name__ == "__main__":
     if torch.cuda.is_available():
@@ -26,5 +28,7 @@ if __name__ == "__main__":
         main_cv.main(args, parser)
     elif args.problem.lower() == "fine-tuning" and args.dataset.lower() == "glue":
         main_glue.main(args)
+    elif args.problem.lower() == "fine-tuning" and args.dataset.lower() == "mathqa":
+        main_llm.main(args)
     else:
         raise ValueError("Unsupported problem or dataset specified.")

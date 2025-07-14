@@ -1,16 +1,17 @@
 import gc
 import json
-import os
 import torch
 import wandb
-from transformers import Trainer, get_scheduler, TrainingArguments
+from transformers import Trainer, TrainingArguments
 from utils_glue import glue_preprocess
 import peft
 import warnings
+
 warnings.filterwarnings("ignore")
 
 import utils
 from optimizers.main import get_optimizer
+
 
 def main(args):
     ################# Model, Tokenizer and Dataset Downloading #################
@@ -47,16 +48,26 @@ def main(args):
     ############################### Wandb Saves ################################
     if args.wandb:
         wandb.init(
-            project = args.wandb_project,
-            tags    = [args.problem, args.model, args.dataset, args.optimizer],
-            name    = args.run_name,
-            config  = args
+            project=args.wandb_project,
+            tags=[args.problem, args.model, args.dataset, args.optimizer],
+            name=args.run_name,
+            config=args,
         )
-        params_info_dict = {"num_peft_adapters": num_peft_adapters,
-                            "all_params_before_peft": all_params_before_peft}
-        params_info_dict["all_params"], params_info_dict["trainable_params"], params_info_dict["train_proportion"] = utils.print_trainable_params(model)
-        params_info_dict["peft_params"] = params_info_dict["all_params"] - all_params_before_peft
-        params_info_dict["peft_proportion"] = params_info_dict["peft_params"] / params_info_dict["all_params"] * 100
+        params_info_dict = {
+            "num_peft_adapters": num_peft_adapters,
+            "all_params_before_peft": all_params_before_peft,
+        }
+        (
+            params_info_dict["all_params"],
+            params_info_dict["trainable_params"],
+            params_info_dict["train_proportion"],
+        ) = utils.print_trainable_params(model)
+        params_info_dict["peft_params"] = (
+            params_info_dict["all_params"] - all_params_before_peft
+        )
+        params_info_dict["peft_proportion"] = (
+            params_info_dict["peft_params"] / params_info_dict["all_params"] * 100
+        )
         wandb.config.update(params_info_dict, allow_val_change=True)
     ############################# Training #####################################
     training_args = TrainingArguments(
@@ -65,7 +76,9 @@ def main(args):
         do_eval=not args.do_not_eval,
         do_predict=args.do_predict,
         per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.eval_batch_size if args.eval_batch_size else args.batch_size,
+        per_device_eval_batch_size=(
+            args.eval_batch_size if args.eval_batch_size else args.batch_size
+        ),
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         lr_scheduler_type=args.lr_scheduler_type,
         warmup_steps=args.warmup_steps,
@@ -76,10 +89,10 @@ def main(args):
         evaluation_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         save_strategy=args.save_strategy,
-        save_steps=args.save_steps, 
+        save_steps=args.save_steps,
         logging_dir=f"./src/fine_tuning/glue/{args.results_path}",
         run_name=args.run_name,
-        report_to=["wandb"] if args.wandb else ["none"]
+        report_to=["wandb"] if args.wandb else ["none"],
     )
     trainer = Trainer(
         model=model,
@@ -126,7 +139,9 @@ def main(args):
             tasks.append("mnli-mm")
             validation_mismatched = datasets["validation_mismatched"]
             if args.max_val_samples is not None:
-                validation_mismatched = validation_mismatched.select(range(args.max_val_samples))
+                validation_mismatched = validation_mismatched.select(
+                    range(args.max_val_samples)
+                )
             eval_datasets.append(validation_mismatched)
 
         for eval_dataset, task in zip(eval_datasets, tasks):
