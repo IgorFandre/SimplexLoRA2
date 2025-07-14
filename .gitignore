@@ -1,0 +1,44 @@
+*/*/histograms/
+data/
+__pycache__/
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+# Dependencies
+node_modules/
+vendor/
+.env
+results_raw/
+wandb/
+tuned_params/
+
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
+dist/
+build/
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Cache files
+*.cache
+.sass-cache/
