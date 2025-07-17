@@ -439,7 +439,7 @@ class DatasetRegistry:
         "svamp": "data/SVAMP/SVAMP.json",
         "bigbench_date": "data/BigBench/date_understanding.json",
         "object_tracking": "data/BigBench/tracking_shuffled_objects.json",
-        "coin_flip": "data/BigBench/coin_flip.json",
+        "coin_flip": "data/coin_flip/coin_flip.json",
         "last_letters": "data/BigBench/last_letters.json",
     }
 
@@ -451,10 +451,12 @@ class DatasetRegistry:
     @classmethod
     def set_dataset_paths(cls, args):
         """Set dataset paths on args"""
-        if args.dataset in cls.DATASET_PATHS:
-            args.dataset_path = cls.DATASET_PATHS[args.dataset]
+        if args.dataset_name in cls.DATASET_PATHS:
+            args.dataset_path = {cls.DATASET_PATHS[args.dataset]}
+        else:
+            raise ValueError(f"Wrong dataset in args.dataset_name: {args.dataset_name}")
 
-        if args.dataset in cls.VAL_DATASET_PATHS:
+        if args.dataset_name in cls.VAL_DATASET_PATHS:
             args.val_dataset_path = cls.VAL_DATASET_PATHS[args.dataset]
 
     @classmethod
@@ -477,10 +479,10 @@ class DatasetRegistry:
             "mathqa": MathQADatasetBuilder,
         }
 
-        if args.dataset not in builders:
+        if args.dataset_name not in builders:
             raise ValueError(f"Unknown dataset: {args.dataset}")
 
-        builder_class = builders[args.dataset]
+        builder_class = builders[args.dataset_name]
         return builder_class(args)
 
 

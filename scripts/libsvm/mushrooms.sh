@@ -2,7 +2,7 @@
 clear
 for optimizer in adamw
 do
-    export CUDA_VISIBLE_DEVICES=3 
+    export CUDA_VISIBLE_DEVICES=3
     python ./src/run_experiment.py \
         --problem libsvm \
         --dataset mushrooms \
@@ -11,7 +11,6 @@ do
         --tune_runs 40 \
         --optimizer $optimizer \
         --hidden_dim 10 \
-        $transform \
         --no_bias \
         --use_old_tune_params \
         --lmo spectral \

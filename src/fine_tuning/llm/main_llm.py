@@ -11,6 +11,12 @@ import peft
 import utils
 from utils_llm import DatasetRegistry
 
+import warnings
+
+warnings.filterwarnings("ignore")
+
+from optimizers.main import get_optimizer
+
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -22,8 +28,8 @@ from transformers import (
 )
 
 
-class WeLoreDownstreamFinetuner:
-    """Main class for downstream finetuning with WeLore"""
+class Finetuner:
+    """Main class for downstream finetuning"""
 
     def __init__(self, args):
         self.args = args
@@ -41,52 +47,52 @@ class WeLoreDownstreamFinetuner:
         """Setup Weights & Biases logging"""
         if self.args.wandb:
             wandb.login()
-            wandb.init(name=self.args.name)
-
-    def setup_seeds(self):
-        """Setup random seeds for reproducibility"""
-        torch.manual_seed(self.args.seed)
-        np.random.seed(self.args.seed)
-        random.seed(self.args.seed)
-
-    def print_gpu_info(self):
-        """Print GPU information"""
-        if torch.cuda.is_available():
-            print("~~~~~~~~~~~~~~~ GPU ~~~~~~~~~~~~~~~")
-            for i in range(torch.cuda.device_count()):
-                print(torch.cuda.get_device_name(i))
-        else:
-            print("~~~~~~~~~~~~~~~ USING CPU ~~~~~~~~~~~~~~~")
+            wandb.init(name=self.args.run_name)
 
     def load_model_and_tokenizer(self):
         """Load model and tokenizer with appropriate configurations"""
         logger.info("Loading model and tokenizer...")
 
         # Determine optimal settings based on GPU capability
+        # [TODO] add flash_attention
         if torch.cuda.get_device_capability()[0] >= 8:
             attn_implementation = "flash_attention_2"
-            torch_dtype = torch.bfloat16
         else:
             attn_implementation = "eager"
-            torch_dtype = torch.float16
 
+        # Set dtype
+        if self.args.dtype == "bfloat16":
+            torch_dtype = torch.bfloat16
+        elif self.args.dtype == "float16":
+            torch_dtype = torch.float16
+        elif self.args.dtype == "float32":
+            torch_dtype = torch.float32
+        elif self.args.dtype == "float64":
+            torch_dtype = torch.float64
         # Setup quantization config
-        bnb_config = BitsAndBytesConfig(
-            load_in_8bit=True,
-            bnb_8bit_compute_dtype=torch_dtype,
-        )
+        if self.args.quantization_bit == 8:
+            bnb_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                bnb_8bit_compute_dtype=torch_dtype,
+            )
+        elif self.args.quantization_bit == 4:
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch_dtype,
+                bnb_4bit_use_double_quant=True,
+            )
+        else:
+            bnb_config = None
 
         # Load model
         self.model = AutoModelForCausalLM.from_pretrained(
             self.args.model,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=torch_dtype,
             low_cpu_mem_usage=True,
             device_map="auto",
             quantization_config=bnb_config,
             attn_implementation=attn_implementation,
         )
-
-        self.model.seqlen = 1024
 
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -123,7 +129,7 @@ class WeLoreDownstreamFinetuner:
                 {
                     "trainable_params_count": tr_param_count,
                     "total_param_count": all_param_count,
-                    "trainable_params_percentage": tr_persent
+                    "trainable_params_percentage": tr_persent,
                 }
             )
 
@@ -189,6 +195,11 @@ class WeLoreDownstreamFinetuner:
         )
         return dataset
 
+    def get_optimizer(self):
+        """Get optimizer for training"""
+        optimizer = get_optimizer(self.model, self.args)
+        return optimizer
+
     def train(self):
         """Execute training process"""
         if self.args.do_not_train:
@@ -237,7 +248,7 @@ class WeLoreDownstreamFinetuner:
             eval_strategy=self.args.evaluation_strategy,
             eval_steps=self.args.eval_steps,
             run_name=self.args.run_name,
-            logging_dir=f"./src/fine_tuning/llm/{self.args.results_path}",
+            logging_dir=f"./src/fine_tuning/llm/{self.args.results_path}/{self.args.run_name}",
             report_to=["wandb"] if self.args.wandb else ["none"],
         )
 
@@ -247,6 +258,8 @@ class WeLoreDownstreamFinetuner:
             training_args.evaluation_strategy = self.args.evaluation_strategy
             training_args.per_device_eval_batch_size = self.args.batch_size
 
+        optimizer = self.get_optimizer()
+
         trainer = Trainer(
             model=self.model,
             train_dataset=train_dataset,
@@ -255,6 +268,7 @@ class WeLoreDownstreamFinetuner:
             ),
             args=training_args,
             data_collator=DataCollatorForLanguageModeling(self.tokenizer, mlm=False),
+            optimizers=[optimizer, None],  # Scheduler will be added in the hf trainer
         )
 
         # Clean up memory before training
@@ -342,12 +356,9 @@ class WeLoreDownstreamFinetuner:
 
     def run(self):
         """Main execution flow"""
-        logger.info("Starting WeLore downstream finetuning pipeline")
+        logger.info("Starting finetuning pipeline")
 
-        # Setup
-        self.setup_seeds()
-        self.print_gpu_info()
-        logger.info(f"Current device: {torch.cuda.current_device()}")
+        utils.set_global_seed(self.args.seed)
 
         # Load model and setup PEFT
         self.load_model_and_tokenizer()
@@ -370,7 +381,7 @@ def main(args):
     print("LLM finetuning script")
 
     # Create and run finetuner
-    finetuner = WeLoreDownstreamFinetuner(args)
+    finetuner = Finetuner(args)
     finetuner.run()
 
 

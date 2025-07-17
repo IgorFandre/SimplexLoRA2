@@ -13,6 +13,9 @@ from cv import main_cv
 from fine_tuning.glue import main_glue
 from fine_tuning.llm import main_llm
 
+CASUAL_LLM_DATASETS = ["mathqa", "coin_flip"]
+
+
 if __name__ == "__main__":
     if torch.cuda.is_available():
         print("~~~~~~~~~~~~~~~ GPU ~~~~~~~~~~~~~~~")
@@ -27,8 +30,13 @@ if __name__ == "__main__":
     elif args.problem.lower() == "cv":
         main_cv.main(args, parser)
     elif args.problem.lower() == "fine-tuning" and args.dataset.lower() == "glue":
-        main_glue.main(args)
-    elif args.problem.lower() == "fine-tuning" and args.dataset.lower() == "mathqa":
+        # Use unified fine-tuning framework
+        main_glue.main(args, parser)
+    elif (
+        args.problem.lower() == "fine-tuning"
+        and args.dataset.lower() in CASUAL_LLM_DATASETS
+    ):
+        # Use unified fine-tuning framework
         main_llm.main(args)
     else:
         raise ValueError("Unsupported problem or dataset specified.")

@@ -17,13 +17,8 @@ def set_arguments_ft(parser):
         "--dataset",
         default="glue",
         type=str,
-        help="Dataset name",
+        help="Dataset name (glue, nlg, squad, squad_v2, llm)",
     )
-    # choices=["glue",
-    #          "squad",
-    #          "squad_v2",
-    #          "xsum",
-    #          "cnn_dailymail"]) # [TODO]
     parser.add_argument(
         "--task_name",
         default=None,
@@ -32,39 +27,41 @@ def set_arguments_ft(parser):
         + ", ".join(task_to_keys_glue.keys()),
     )
     parser.add_argument(
+        "--dataset_config",
+        default=None,
+        type=str,
+        help="Dataset config name",
+    )
+    parser.add_argument(
         "--max_seq_length",
         default=128,
         type=int,
-        help="The maximum total input sequence length after tokenization. "
-        "Sequences longer than this will be truncated, sequences shorter will be padded.",
+        help="The maximum total input sequence length after tokenization.",
     )
     parser.add_argument(
         "--pad_to_max_length",
         action="store_true",
         default=True,
-        help="Whether to pad all samples to `max_seq_length`. "
-        "If False, will pad the samples dynamically when batching to the maximum length in the batch.",
+        help="Whether to pad all samples to `max_seq_length`.",
     )
     parser.add_argument(
         "--max_train_samples",
         default=None,
         type=int,
-        help="For debugging purposes or quicker training, truncate the number of training examples to this "
-        "value if set.",
+        help="Truncate the number of training examples to this value if set.",
     )
     parser.add_argument(
         "--max_eval_samples",
+        "--max_val_samples",
         default=None,
         type=int,
-        help="For debugging purposes or quicker training, truncate the number of validation examples to this "
-        "value if set.",
+        help="Truncate the number of validation examples to this value if set.",
     )
     parser.add_argument(
         "--max_test_samples",
         default=None,
         type=int,
-        help="For debugging purposes or quicker training, truncate the number of test examples to this "
-        "value if set.",
+        help="Truncate the number of test examples to this value if set.",
     )
     parser.add_argument(
         "--train_file",
@@ -91,8 +88,16 @@ def set_arguments_ft(parser):
         help="The number of processes to use for the preprocessing",
     )
     parser.add_argument(
+        "--overwrite_cache",
+        action="store_true",
+        default=False,
+        help="Overwrite the cached training and evaluation data",
+    )
+
+    # SQuAD specific
+    parser.add_argument(
         "--doc_stride",
-        default=32,
+        default=128,
         type=int,
         help="When splitting up a long document into chunks, how much stride to take between chunks.",
     )
@@ -105,9 +110,7 @@ def set_arguments_ft(parser):
         "--null_score_diff_threshold",
         default=0.0,
         type=float,
-        help="The threshold used to select the null answer: if the best answer has a score that is less than "
-        "the score of the null answer minus this threshold, the null answer is selected for this example. "
-        "Only useful when `version_2_with_negative=True`.",
+        help="The threshold used to select the null answer",
     )
     parser.add_argument(
         "--n_best_size",
@@ -119,43 +122,33 @@ def set_arguments_ft(parser):
         "--max_answer_length",
         default=30,
         type=int,
-        help="The maximum length of an answer that can be generated. This is needed because the start "
-        "and end predictions are not conditioned on one another.",
+        help="The maximum length of an answer that can be generated.",
     )
+
+    # NLG specific
     parser.add_argument(
-        "--eval_max_target_length",
-        default=None,
+        "--max_source_length",
+        default=1024,
         type=int,
-        help="The maximum total sequence length for validation target text after tokenization. Sequences longer "
-        "than this will be truncated, sequences shorter will be padded. Will default to `max_target_length`. "
-        "This argument is also used to override the ``max_length`` param of ``model.generate``, which is used "
-        "during ``evaluate`` and ``predict``.",
+        help="The maximum total input sequence length for source text after tokenization.",
     )
     parser.add_argument(
         "--max_target_length",
         default=128,
         type=int,
-        help="The maximum total sequence length for target text after tokenization. Sequences longer "
-        "than this will be truncated, sequences shorter will be padded.",
+        help="The maximum total sequence length for target text after tokenization.",
+    )
+    parser.add_argument(
+        "--val_max_target_length",
+        default=None,
+        type=int,
+        help="The maximum total sequence length for validation target text after tokenization.",
     )
     parser.add_argument(
         "--source_prefix",
         default="",
         type=str,
         help="A prefix to add before every source text (useful for T5 models).",
-    )
-    parser.add_argument(
-        "--dataset_config",
-        default=None,
-        type=str,
-        help="The configuration name of the dataset to use (via the datasets library).",
-    )
-    parser.add_argument(
-        "--max_source_length",
-        default=1024,
-        type=int,
-        help="The maximum total input sequence length after tokenization. Sequences longer "
-        "than this will be truncated, sequences shorter will be padded.",
     )
     parser.add_argument(
         "--text_column",
@@ -175,12 +168,63 @@ def set_arguments_ft(parser):
         default=True,
         help="Whether to ignore the tokens corresponding to padded labels in the loss computation or not.",
     )
+    parser.add_argument(
+        "--num_beams",
+        default=None,
+        type=int,
+        help="Number of beams to use for evaluation.",
+    )
+    parser.add_argument(
+        "--predict_with_generate",
+        action="store_true",
+        default=True,
+        help="Whether to use generate to calculate generative metrics.",
+    )
+
+    # LLM specific
+    parser.add_argument(
+        "--dataset_path",
+        default=None,
+        type=str,
+        help="Path to dataset for LLM tasks",
+    )
+    parser.add_argument(
+        "--use_huggingface",
+        action="store_true",
+        help="Use HuggingFace datasets",
+    )
+    parser.add_argument(
+        "--num_training_steps",
+        default=1000,
+        type=int,
+        help="Number of training steps for LLM",
+    )
+    parser.add_argument(
+        "--gradient_accumulation",
+        "--gradient_accumulation_steps",
+        "--grad_acc_steps",
+        default=1,
+        type=int,
+        help="Gradient accumulation steps for LLM",
+    )
+    parser.add_argument(
+        "--save_every",
+        default=500,
+        type=int,
+        help="Save model every N steps",
+    )
+    parser.add_argument(
+        "--workers",
+        default=0,
+        type=int,
+        help="Number of dataloader workers",
+    )
 
     ### Model Arguments
     parser.add_argument(
         "--model",
         default=None,
-        type=str,  # [TODO] add all models
+        type=str,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
@@ -211,7 +255,7 @@ def set_arguments_ft(parser):
     parser.add_argument(
         "--use_fast_tokenizer",
         action="store_true",
-        default=False,
+        default=True,
         help="Whether to use one of the fast tokenizer (backed by the tokenizers library) or not.",
     )
     parser.add_argument(
@@ -224,26 +268,19 @@ def set_arguments_ft(parser):
         "--use_auth_token",
         action="store_true",
         default=False,
-        help="Will use the token generated when running `transformers-cli login` "
-        "(necessary to use this script with private models).",
+        help="Will use the token generated when running `transformers-cli login`",
     )
     parser.add_argument(
-        "--reg_loss_wgt", default=0.0, type=float, help="Regularization Loss Weight"
+        "--resize_position_embeddings",
+        default=None,
+        action="store_true",
+        help="Whether to automatically resize the position embeddings",
     )
     parser.add_argument(
-        "--masking_prob", default=0.0, type=float, help="Token Masking Probability"
-    )
-    parser.add_argument(
-        "--bits",
-        default=4,
+        "--quantization_bit",
+        default=None,
         type=int,
-        help="Number of bits for model quantization (e.g., 4 or 8)",
-    )
-    parser.add_argument(
-        "--overwrite_cache",
-        action="store_false",
-        default=False,
-        help="Overwrite the cached training and evaluation data",
+        help="The number of bits to quantize the model to. If None, the model will not be quantized.",
     )
 
     ### Training Arguments
@@ -254,7 +291,7 @@ def set_arguments_ft(parser):
         "--do_not_eval", action="store_true", default=False, help="Do validation or not"
     )
     parser.add_argument(
-        "--do_predict", action="store_true", default=False, help="Do validation or not"
+        "--do_predict", action="store_true", default=False, help="Do prediction or not"
     )
     parser.add_argument(
         "--eval_batch_size",
@@ -265,9 +302,9 @@ def set_arguments_ft(parser):
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
-        default=6,
+        default=1,
         type=int,
-        help="Number of accumulation steps to make a gradient step, i.e. before optimizer.step()",
+        help="Number of accumulation steps to make a gradient step",
     )
     parser.add_argument(
         "--max_steps_train",
@@ -280,7 +317,7 @@ def set_arguments_ft(parser):
         "--lr_scheduler_type",
         default="linear",
         type=str,
-        help="Scheduler for optimizer. We pass it in get_scheduler, possible options are",
+        help="Scheduler for optimizer",
     )
     parser.add_argument(
         "--warmup_steps",
@@ -290,19 +327,16 @@ def set_arguments_ft(parser):
     )
     parser.add_argument(
         "--warmup_ratio",
-        default=0,
+        default=0.0,
         type=float,
-        help="Ratio of total training steps for warmup, from 0 to learning_rate.",
+        help="Ratio of total training steps for warmup",
     )
     parser.add_argument(
         "--eval_strategy",
         "--evaluation_strategy",
         default="steps",
         type=str,
-        help="""Strategy to evaluate model.
-                        "no": No save is done during training.
-                        "epoch": Save is done at the end of each epoch.
-                        "steps": Save is done every save_steps.""",
+        help="Strategy to evaluate model",
     )
     parser.add_argument(
         "--eval_steps",
@@ -311,8 +345,28 @@ def set_arguments_ft(parser):
         help="Number of steps between evaluations (if eval_strategy==steps)",
     )
     parser.add_argument(
-        "--logging_steps", default=1, type=int, help="How often print train loss"
+        "--logging_steps", default=10, type=int, help="How often print train loss"
     )
+    parser.add_argument(
+        "--save_strategy",
+        default="steps",
+        type=str,
+        help="Strategy to save model checkpoints",
+    )
+    parser.add_argument(
+        "--save_steps",
+        default=500,
+        type=int,
+        help="Number of steps between saves (if save_strategy==steps)",
+    )
+    parser.add_argument(
+        "--fp16", action="store_true", help="Whether to use 16-bit (mixed) precision"
+    )
+    parser.add_argument(
+        "--bf16", action="store_true", help="Whether to use bf16 (mixed) precision"
+    )
+
+    ### PEFT Arguments
     parser.add_argument(
         "--ft_strategy", default="LoRA", type=str, help="What PEFT strategy to use"
     )
@@ -334,23 +388,10 @@ def set_arguments_ft(parser):
         type=float,
         help="Dropout of LoRA and LoRA-like PEFT adapters",
     )
-    parser.add_argument(
-        "--save_strategy",
-        default="no",
-        type=str,
-        help="""Strategy to save model checkpoints.
-                        "no": No save is done during training.
-                        "epoch": Save is done at the end of each epoch.
-                        "steps": Save is done every save_steps.""",
-    )
-    parser.add_argument(
-        "--save_steps",
-        default=500,
-        type=int,
-        help="Number of steps between saves (if save_strategy==steps)",
-    )
 
     ### Override some default values from the main parser
-    parser.set_defaults(batch_size=8, n_epoches_train=3, eval_runs=1)
+    parser.set_defaults(
+        batch_size=8, n_epoches_train=3, eval_runs=1, problem="fine-tuning"
+    )
 
     return parser
