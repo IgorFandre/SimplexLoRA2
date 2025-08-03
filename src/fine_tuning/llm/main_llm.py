@@ -1,6 +1,3 @@
-import random
-import numpy as np
-
 import torch
 import datasets
 import wandb
@@ -12,6 +9,8 @@ import utils
 from utils_llm import DatasetRegistry
 
 import warnings
+
+DATASETS = ["mathqa", "coin_flip"]
 
 warnings.filterwarnings("ignore")
 
@@ -37,7 +36,8 @@ class Finetuner:
         self.tokenizer = None
         self.builder = None
         self.setup_logging()
-        self.setup_wandb()
+        if self.args.wandb:
+            self.setup_wandb()
 
     def setup_logging(self):
         """Setup logging configuration"""
@@ -45,9 +45,12 @@ class Finetuner:
 
     def setup_wandb(self):
         """Setup Weights & Biases logging"""
-        if self.args.wandb:
-            wandb.login()
-            wandb.init(name=self.args.run_name)
+        wandb.init(
+            project=self.args.wandb_project,
+            tags=[self.args.model, self.args.dataset, self.args.optimizer],
+            name=self.args.run_name,
+            config=self.args,
+        )
 
     def load_model_and_tokenizer(self):
         """Load model and tokenizer with appropriate configurations"""
@@ -56,7 +59,7 @@ class Finetuner:
         # Determine optimal settings based on GPU capability
         # [TODO] add flash_attention
         if torch.cuda.get_device_capability()[0] >= 8:
-            attn_implementation = "flash_attention_2"
+            attn_implementation = "eager"  # fix flash_attention_2
         else:
             attn_implementation = "eager"
 
@@ -70,12 +73,12 @@ class Finetuner:
         elif self.args.dtype == "float64":
             torch_dtype = torch.float64
         # Setup quantization config
-        if self.args.quantization_bit == 8:
+        if self.args.quant_bit == 8:
             bnb_config = BitsAndBytesConfig(
                 load_in_8bit=True,
                 bnb_8bit_compute_dtype=torch_dtype,
             )
-        elif self.args.quantization_bit == 4:
+        elif self.args.quant_bit == 4:
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch_dtype,
@@ -116,8 +119,6 @@ class Finetuner:
         peft_args = utils.get_peft_arguments(self.args)
         if peft_args is not None:
             self.model = peft.get_peft_model(self.model, peft_args)
-
-        print(self.model)
 
         # Print trainable parameters info
         tr_param_count, all_param_count, tr_persent = utils.print_trainable_params(
@@ -197,7 +198,7 @@ class Finetuner:
 
     def get_optimizer(self):
         """Get optimizer for training"""
-        optimizer = get_optimizer(self.model, self.args)
+        optimizer = get_optimizer(self.args, self.model)
         return optimizer
 
     def train(self):
@@ -214,58 +215,40 @@ class Finetuner:
             logger.error("No training data available")
             return
 
-        # Prepare evaluation dataset for trainer
-        eval_dataset = self.prepare_evaluation_dataset()
-        if eval_dataset is not None:
-            # Convert evaluation dataset to training format for trainer
-            eval_dataset_for_trainer = self.builder.preprocess_dataset(
-                self.tokenizer,
-                self.args.max_seq_length,
-                self.args.seed,
-                eval_dataset,
-                eval_mode=False,  # Use training format for trainer evaluation
-            )
-        else:
-            eval_dataset_for_trainer = None
-
         # Setup trainer
         training_args = TrainingArguments(
+            do_train=not self.args.do_not_train,
+            do_eval=not self.args.do_not_eval,
+            do_predict=self.args.do_predict,
             per_device_train_batch_size=self.args.batch_size,
-            per_device_eval_batch_size=self.args.batch_size,
-            gradient_accumulation_steps=self.args.gradient_accumulation,
+            per_device_eval_batch_size=(
+                self.args.eval_batch_size
+                if self.args.eval_batch_size
+                else self.args.batch_size
+            ),
+            gradient_accumulation_steps=self.args.grad_acc_steps,
+            lr_scheduler_type=self.args.lr_scheduler_type,
             warmup_steps=self.args.warmup_steps,
-            max_steps=self.args.num_training_steps,
             learning_rate=self.args.lr,
+            num_train_epochs=self.args.n_epoches_train,
+            max_steps=self.args.max_steps_train,
+            logging_steps=self.args.logging_steps,
+            eval_strategy="no",
+            eval_steps=self.args.eval_steps,
+            save_strategy=self.args.save_strategy,
+            save_steps=self.args.save_steps,
             bf16=(self.args.dtype == "bfloat16"),
             fp16=(self.args.dtype == "float16"),
-            logging_steps=1,
-            output_dir=self.args.save_dir,
-            optim="paged_adamw_8bit",
-            save_steps=self.args.save_every,
-            weight_decay=self.args.weight_decay,
-            dataloader_num_workers=self.args.workers,
-            seed=self.args.seed,
-            eval_strategy=self.args.evaluation_strategy,
-            eval_steps=self.args.eval_steps,
-            run_name=self.args.run_name,
             logging_dir=f"./src/fine_tuning/llm/{self.args.results_path}/{self.args.run_name}",
+            run_name=self.args.run_name,
             report_to=["wandb"] if self.args.wandb else ["none"],
         )
-
-        # Add evaluation parameters if we have evaluation dataset
-        if eval_dataset_for_trainer is not None and not self.args.do_not_eval:
-            training_args.eval_steps = self.args.eval_steps
-            training_args.evaluation_strategy = self.args.evaluation_strategy
-            training_args.per_device_eval_batch_size = self.args.batch_size
 
         optimizer = self.get_optimizer()
 
         trainer = Trainer(
             model=self.model,
             train_dataset=train_dataset,
-            eval_dataset=(
-                eval_dataset_for_trainer if not self.args.do_not_eval else None
-            ),
             args=training_args,
             data_collator=DataCollatorForLanguageModeling(self.tokenizer, mlm=False),
             optimizers=[optimizer, None],  # Scheduler will be added in the hf trainer
@@ -378,8 +361,6 @@ class Finetuner:
 
 def main(args):
     """Main entry point"""
-    print("LLM finetuning script")
-
     # Create and run finetuner
     finetuner = Finetuner(args)
     finetuner.run()

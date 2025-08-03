@@ -3,15 +3,26 @@ from termcolor import colored
 import os, json
 
 from libsvm.config_libsvm import set_arguments_libsvm
+from libsvm.main_libsvm import DATASETS as LIBSVM_DATASETS
+
 from cv.config_cv import set_arguments_cv
+from cv.main_cv import DATASETS as CV_DATASETS
+
 from fine_tuning.config_ft import set_arguments_ft
+from fine_tuning.glue.main_glue import DATASETS as GLUE_DATASETS
+from fine_tuning.llm.main_llm import DATASETS as LLM_DATASETS
 
 
 def parse_args():
     parser1 = ArgumentParser(description="Main Experiment")
 
     ### Problem Arguments
-    parser1.add_argument("--problem", type=str, choices=["libsvm", "cv", "fine-tuning"])
+    parser1.add_argument(
+        "--dataset",
+        default=None,
+        type=str,
+        help="Dataset name",
+    )
     parser1.add_argument(
         "--config_name",
         default=None,
@@ -122,20 +133,31 @@ def parse_args():
         )
 
     ### Problem Specific Arguments
-    if args1.problem is None:
-        raise ValueError("Problem must be specified. Example: --problem libsvm")
-    if args1.problem.lower() == "libsvm":
+    if args1.dataset.lower() in LIBSVM_DATASETS:
+        problem = "libsvm"
         parser = set_arguments_libsvm(parser)
-    elif args1.problem.lower() == "cv":
+    elif args1.dataset.lower() in CV_DATASETS:
+        problem = "cv"
         parser = set_arguments_cv(parser)
-    elif args1.problem.lower() == "fine-tuning":
+    elif args1.dataset.lower() in GLUE_DATASETS + LLM_DATASETS:
+        problem = "fine_tuning"
         parser = set_arguments_ft(parser)
+    else:
+        raise ValueError(
+            f"""
+            Unknown dataset: {args1.dataset}.
+            Possible datasets are:
+            LIBSVM: {LIBSVM_DATASETS}
+            CV: {CV_DATASETS}
+            GLUE (FINE-TUNING): {GLUE_DATASETS}
+            CAUSAL LLM (FINE-TUNING): {LLM_DATASETS}"""
+        )
 
     args, unparced_args = parser.parse_known_args()
 
     ### Warnings
     if args1.config_name is not None:
-        path = f"./src/{args1.problem}/configs/{args1.config_name}.json"
+        path = f"./src/{problem}/configs/{args1.config_name}.json"
         if os.path.exists(path):
             print(colored("~~~~~~~~~~~~~~~ CONFIG FILE FOUND ~~~~~~~~~~~~~~~", "green"))
             line = f"Configuration file found at: {path}"

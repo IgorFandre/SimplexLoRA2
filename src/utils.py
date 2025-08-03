@@ -67,7 +67,7 @@ def count_atapters(model, peft_type):
 
 
 def get_run_name(args, parser, tuning=False):
-    key_args = ["problem", "optimizer", "model", "dataset"]
+    key_args = ["optimizer", "model", "dataset"]
     ignore_args = [
         "verbose",
         "seed",

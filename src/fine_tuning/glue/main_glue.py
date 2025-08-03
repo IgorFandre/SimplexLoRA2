@@ -7,6 +7,8 @@ from utils_glue import glue_preprocess
 import peft
 import warnings
 
+DATASETS = ["cola", "mnli", "mrpc", "qnli", "qqp", "rte", "sst2", "stsb", "wnli"]
+
 warnings.filterwarnings("ignore")
 
 import utils
@@ -42,14 +44,14 @@ def main(args):
         with open(f_name) as f:
             tuned_params = json.load(f)
         # [TODO] add more tuned params
-        lr = tuned_params[args.model][args.task_name][args.ft_strategy]["lr"]
+        lr = tuned_params[args.model][args.dataset][args.ft_strategy]["lr"]
         args.lr = lr
     optimizer = get_optimizer(args, model)
     ############################### Wandb Saves ################################
     if args.wandb:
         wandb.init(
             project=args.wandb_project,
-            tags=[args.problem, args.model, args.dataset, args.optimizer],
+            tags=[args.model, args.dataset, args.optimizer],
             name=args.run_name,
             config=args,
         )
@@ -79,20 +81,21 @@ def main(args):
         per_device_eval_batch_size=(
             args.eval_batch_size if args.eval_batch_size else args.batch_size
         ),
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        gradient_accumulation_steps=args.grad_acc_steps,
         lr_scheduler_type=args.lr_scheduler_type,
         warmup_steps=args.warmup_steps,
         learning_rate=args.lr,
         num_train_epochs=args.n_epoches_train,
         max_steps=args.max_steps_train,
         logging_steps=args.logging_steps,
-        evaluation_strategy=args.eval_strategy,
+        eval_strategy="steps" if args.eval_steps else args.eval_strategy,
         eval_steps=args.eval_steps,
         save_strategy=args.save_strategy,
         save_steps=args.save_steps,
-        logging_dir=f"./src/fine_tuning/glue/{args.results_path}",
+        logging_dir=f"./src/fine_tuning/glue/{args.results_path}/{args.run_name}",
         run_name=args.run_name,
         report_to=["wandb"] if args.wandb else ["none"],
+        label_names=["labels"],  # peft and compute_metrics() problem
     )
     trainer = Trainer(
         model=model,
@@ -133,52 +136,54 @@ def main(args):
     if not args.do_not_eval:
         # Loop to handle MNLI double evaluation (matched, mis-matched)
         print(f"~~~~~~~~~~~~~~~ EVALUATION ~~~~~~~~~~~~~~~")
-        tasks = [args.task_name]
+        tasks = [args.dataset]
         eval_datasets = [eval_dataset]
-        if args.task_name == "mnli":
+        if args.dataset == "mnli":
             tasks.append("mnli-mm")
             validation_mismatched = datasets["validation_mismatched"]
-            if args.max_val_samples is not None:
+            if args.max_eval_samples is not None:
                 validation_mismatched = validation_mismatched.select(
-                    range(args.max_val_samples)
+                    range(args.max_eval_samples)
                 )
             eval_datasets.append(validation_mismatched)
 
         for eval_dataset, task in zip(eval_datasets, tasks):
             eval_metrics = trainer.evaluate(eval_dataset=eval_dataset)
-            max_val_samples = (
-                args.max_val_samples
-                if args.max_val_samples is not None
+            max_eval_samples = (
+                args.max_eval_samples
+                if args.max_eval_samples is not None
                 else len(eval_dataset)
             )
-            eval_metrics["eval_samples"] = min(max_val_samples, len(eval_dataset))
+            eval_metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
             trainer.log_metrics("Eval_%s" % task, eval_metrics)
             trainer.save_metrics("Eval_%s" % task, eval_metrics)
 
         if "eval_runtime" in eval_metrics.keys():
             eval_metrics["eval_runtime"] /= 60
-        if "wandb" in args.report_to:
+        if args.wandb:
             wandb.config.update(eval_metrics, allow_val_change=True)
     ################################# Testing ##################################
     if args.do_predict:
         print(f"~~~~~~~~~~~~~~~ PREDICTIONS ~~~~~~~~~~~~~~~")
         # Loop to handle MNLI double evaluation (matched, mis-matched)
-        tasks = [args.task_name]
+        tasks = [args.dataset]
         test_datasets = [eval_dataset]
-        if args.task_name == "mnli":
+        if args.dataset == "mnli":
             tasks.append("mnli-mm")
             test_datasets.append(datasets["validation_mismatched"])
 
         for test_dataset, task in zip(test_datasets, tasks):
             metrics = trainer.evaluate(test_dataset, metric_key_prefix="test")
             max_samples = (
-                args.max_val_samples
-                if args.max_val_samples is not None
+                args.max_eval_samples
+                if args.max_eval_samples is not None
                 else len(test_dataset)
             )
             metrics["test_samples"] = min(max_samples, len(test_dataset))
             trainer.log_metrics("Test_%s" % task, metrics)
             trainer.save_metrics("Test_%s" % task, metrics)
+            if args.wandb:
+                wandb.config.update(metrics, allow_val_change=True)
 
     del trainer, model
     gc.collect()

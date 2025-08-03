@@ -1,5 +1,5 @@
 """
-Here is an original implementation of Muon. 
+Here is an original implementation of Muon.
 Source: https://github.com/KellerJordan/modded-nanogpt
 """
 
@@ -8,6 +8,7 @@ import os
 import torch
 import torch.distributed as dist
 from typing import Callable
+
 
 def zeropower_via_newtonschulz5(G, steps=10, eps=1e-7):
     """
@@ -149,8 +150,9 @@ class Muon(torch.optim.Optimizer):
                     buf.mul_(momentum).add_(g)
                     if group["nesterov"]:
                         g = g.add(buf, alpha=momentum)
-                    g = zeropower_via_newtonschulz5(g, steps=group["ns_steps"], 
-                                                    eps=group["adamw_eps"])
+                    g = zeropower_via_newtonschulz5(
+                        g, steps=group["ns_steps"], eps=group["adamw_eps"]
+                    )
                     g *= max(1, g.size(0) / g.size(1)) ** 0.5
                     updates_flat[curr_idx : curr_idx + p.numel()] = g.flatten()
                 curr_idx += p.numel()
@@ -206,7 +208,7 @@ class Muon(torch.optim.Optimizer):
                 scale = bias_correction1 / bias_correction2**0.5
                 p.data.mul_(1 - lr * weight_decay)
                 p.data.add_(g, alpha=-lr / scale)
-        
+
         return loss
 
 

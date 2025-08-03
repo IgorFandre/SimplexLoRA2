@@ -11,6 +11,7 @@ from optimizers.main import get_optimizer
 from trainer import train
 from utils import get_run_name
 
+DATASETS = ["mushrooms", "binary"]
 MAIN_METRIC = "accuracy"
 
 
@@ -113,7 +114,7 @@ def main(args, parser):
         if args.wandb:
             wandb.init(
                 project=args.wandb_project,
-                tags=[args.problem, args.model, args.dataset, args.optimizer],
+                tags=[args.model, args.dataset, args.optimizer],
                 name=args.run_name,
                 config=args,
             )

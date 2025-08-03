@@ -1,5 +1,5 @@
 clear
-#for task_name in cola mnli mrpc qnli qqp rte sst2 stsb
+#for dataset in cola mnli mrpc qnli qqp rte sst2 stsb
 for r in 4 8
 do
     # for lr in 1e-6 3e-5 5e-5 8e-5 1e-4 3e-4 5e-4 8e-4 1e-3
@@ -7,9 +7,8 @@ do
     do
         export CUDA_VISIBLE_DEVICES=3
         python ./glue_experiment/run_glue.py \
-            --dataset_name glue \
-            --task_name cola \
-            --model_name_or_path meta-llama/Meta-Llama-3.1-8B \
+            --dataset cola \
+            --model meta-llama/Meta-Llama-3.1-8B \
             --per_device_train_batch_size 16 \
             --per_device_eval_batch_size 16 \
             --gradient_accumulation_steps 1 \

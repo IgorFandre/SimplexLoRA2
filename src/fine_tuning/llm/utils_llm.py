@@ -139,26 +139,17 @@ class GSM8KDatasetBuilder(DatasetBuilder):
         return "answer only numbers, write answer first."
 
     def build_dataset(self):
-        if hasattr(self.args, "use_huggingface") and self.args.use_huggingface:
-            dataset = load_dataset("openai/gsm8k", "main", trust_remote_code=True)
-            train_data = dataset["train"]
-            eval_data = dataset["test"]
+        dataset = load_dataset("openai/gsm8k", "main", trust_remote_code=True)
+        train_data = dataset["train"]
+        eval_data = dataset["test"]
 
-            for item in train_data:
-                self.train_questions.append(item["question"])
-                self.train_answers.append(item["answer"].split("####")[1].strip())
+        for item in train_data:
+            self.train_questions.append(item["question"])
+            self.train_answers.append(item["answer"].split("####")[1].strip())
 
-            for item in eval_data:
-                self.eval_questions.append(item["question"])
-                self.eval_answers.append(item["answer"].split("####")[1].strip())
-        else:
-            decoder = json.JSONDecoder()
-            with open(self.args.dataset_path) as f:
-                lines = f.readlines()
-                for line in lines:
-                    json_res = decoder.raw_decode(line)[0]
-                    self.train_questions.append(json_res["question"].strip())
-                    self.train_answers.append(json_res["answer"].split("#### ")[-1])
+        for item in eval_data:
+            self.eval_questions.append(item["question"])
+            self.eval_answers.append(item["answer"].split("####")[1].strip())
 
 
 class CommonsenseQADatasetBuilder(DatasetBuilder):
@@ -451,12 +442,10 @@ class DatasetRegistry:
     @classmethod
     def set_dataset_paths(cls, args):
         """Set dataset paths on args"""
-        if args.dataset_name in cls.DATASET_PATHS:
+        if args.dataset in cls.DATASET_PATHS:
             args.dataset_path = {cls.DATASET_PATHS[args.dataset]}
-        else:
-            raise ValueError(f"Wrong dataset in args.dataset_name: {args.dataset_name}")
 
-        if args.dataset_name in cls.VAL_DATASET_PATHS:
+        if args.dataset in cls.VAL_DATASET_PATHS:
             args.val_dataset_path = cls.VAL_DATASET_PATHS[args.dataset]
 
     @classmethod
@@ -479,10 +468,10 @@ class DatasetRegistry:
             "mathqa": MathQADatasetBuilder,
         }
 
-        if args.dataset_name not in builders:
+        if args.dataset not in builders:
             raise ValueError(f"Unknown dataset: {args.dataset}")
 
-        builder_class = builders[args.dataset_name]
+        builder_class = builders[args.dataset]
         return builder_class(args)
 
 
