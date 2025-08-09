@@ -56,14 +56,14 @@ def glue_preprocess(args):
         finetuning_task=args.dataset,
         cache_dir=args.cache_dir,
         revision=args.model_revision,
-        use_auth_token=True if args.use_auth_token else None,
+        use_auth_token=False,
     )
     tokenizer = AutoTokenizer.from_pretrained(
         args.tokenizer if args.tokenizer else args.model,
         cache_dir=args.cache_dir,
         use_fast=False,
         revision=args.model_revision,
-        use_auth_token=True if args.use_auth_token else None,
+        use_auth_token=False,
     )
 
     if "llama" in args.model:
@@ -79,7 +79,7 @@ def glue_preprocess(args):
             bnb_4bit_compute_dtype=torch_dtype,
             bnb_4bit_use_double_quant=True,
         )
-    else: # for deberta
+    else:  # for deberta
         attn_implementation = "eager"
         torch_dtype = torch.float32
         bnb_config = None

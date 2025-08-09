@@ -1,7 +1,6 @@
 clear
 #for dataset in cola mnli mrpc qnli qqp rte sst2 stsb
-export HF_AUTH_TOKEN=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
-CUDA_VISIBLE_DEVICES=7 python ./src/run_experiment.py \
+CUDA_VISIBLE_DEVICES=6 python ./src/run_experiment.py \
     --dataset sst2 \
     --model microsoft/deberta-v3-base \
     --optimizer muon \

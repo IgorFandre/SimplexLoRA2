@@ -60,3 +60,16 @@ def get_optimizer(args, model):
     else:
         raise NotImplementedError(f"Wrong optimizer name {args.optimizer}")
     return optimizer
+
+
+# optim_params = []
+# for name, param in model.named_parameters():
+#     if param.requires_grad:
+#         layer_name = name.replace("lora_A.", "").replace("lora_B.", "") # можно поиграться
+#         layer_exist = False
+#         for param_group in optim_params:
+#             if param_group["name"] == layer_name:
+#                 param_group["params"].append(param)
+#                 layer_exist = True
+#         if not layer_exist:
+#             optim_params.append({"params": [param], "name": layer_name})
