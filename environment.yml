@@ -7,10 +7,10 @@ dependencies:
     - pip
     - jupyter
     - ipykernel
-    - numpy
     - pandas
     - matplotlib
     - scikit-learn
+    - temcolor
     - pip:
           - torch==2.6.0
           - torchaudio==2.6.0
@@ -31,9 +31,9 @@ dependencies:
           - tiktoken==0.8.0
           - loguru==0.7.3
           - ipdb==0.13.13
+          - numpy==1.25.2
           - nvitop==1.5.0
           - pyspark==3.5.1
-          - temcolor
           - requests
           - pyyaml
           - tqdm

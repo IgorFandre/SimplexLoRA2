@@ -41,6 +41,7 @@ def parse_args():
             "sgd",
             "adam-sania",
             "muon",
+            "weight_adamw"
         ],
     )
     args1, _ = parser1.parse_known_args()
@@ -93,7 +94,7 @@ def parse_args():
 
     ### Otimizer Arguments
     parser.add_argument(
-        "--lr", "--learning rate", default=1e-4, type=float, help="learning rate"
+        "--lr", "--learning_rate", default=1e-4, type=float, help="learning rate"
     )  # tuneed param
     parser.add_argument(
         "--weight_decay", "-wd", default=1e-5, type=float, help="weight decay"
@@ -130,6 +131,16 @@ def parse_args():
         )
         parser.add_argument(
             "--adamw_lr", default=None, type=float, help="lr for adam in "
+        )
+    if args1.optimizer in ["weight_adamw"]:
+        parser.add_argument(
+            "--k", "--K", default=10, type=int, help="Number of active LoRA adapters"
+        )
+        parser.add_argument(
+            "--lr_w", "--learning_rate_w", default=5.0, type=float, help="learning rate for weight params"
+        )
+        parser.add_argument(
+            "--max_fat_steps", type=int, default=3, help="Projection steps of WeightLoRA"
         )
 
     ### Problem Specific Arguments

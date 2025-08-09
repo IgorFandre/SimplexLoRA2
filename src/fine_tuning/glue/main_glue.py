@@ -6,6 +6,7 @@ from transformers import Trainer, TrainingArguments
 from utils_glue import glue_preprocess
 import peft
 import warnings
+import utils
 
 DATASETS = ["cola", "mnli", "mrpc", "qnli", "qqp", "rte", "sst2", "stsb", "wnli"]
 
@@ -124,6 +125,9 @@ def main(args):
             train_metrics["train_samples"] = min(max_train_samples, len(train_dataset))
             train_metrics["train_memory_gb"] = torch.cuda.max_memory_allocated() / 2**30
             train_metrics["train_runtime"] /= 60
+            if args.ft_strategy == "WeightLoRA":
+                remain_adapters = utils.count_remain_adapters(args, model)
+            train_metrics = train_metrics | remain_adapters
             trainer.save_model()
 
             trainer.log_metrics("train", train_metrics)

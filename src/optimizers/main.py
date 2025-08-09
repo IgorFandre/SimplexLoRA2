@@ -3,10 +3,18 @@ import sys
 
 # from torch_optimizer import Shampoo
 sys.path.append("src/optimizers")
-import soap, adam_sania, muon, diag_hvp
+import soap, adam_sania, muon, diag_hvp, weight_adamw
 
 
 def get_optimizer(args, model):
+    if hasattr(args, "ft_strategy") and \
+        args.ft_strategy == "WeightLoRA" and \
+            args.optimizer not in ["weight_adamw"]:
+                raise ValueError("Optimizer must be 'weight_adamw' when using 'WeightLoRA' strategy.")
+    if hasattr(args, "ft_strategy") and \
+        args.optimizer in ["weight_adamw"] and \
+            args.ft_strategy != "WeightLoRA":
+                raise ValueError("The 'weight_adamw' optimizer must be used with the 'WeightLoRA' strategy.")
     if args.optimizer == "adamw":
         optimizer = optim.AdamW(
             params=model.parameters(),
@@ -56,6 +64,30 @@ def get_optimizer(args, model):
             lr=args.lr,
             eps=args.eps,
             update_freq=args.update_freq,
+        )
+    elif args.optimizer == "weight_adamw":
+        weight_params, other_params = [], []
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            if "lora_weight" in name:
+                weight_params.append(param)
+            elif "lora_A" in name or "lora_B" in name:
+                other_params.append(param)
+        optimizer = weight_adamw.WeightAdamW(
+            [
+                {"params": other_params, "name": "other_params"},
+                {
+                    "params": weight_params,
+                    "k": args.k,
+                    "proj": weight_adamw.proj_0,
+                    "lr": args.lr_w,
+                    "max_fat_steps": args.max_fat_steps,
+                    "name": "weight_params",
+                },
+            ],
+            lr=args.lr,
+            weight_decay=args.weight_decay,
         )
     else:
         raise NotImplementedError(f"Wrong optimizer name {args.optimizer}")

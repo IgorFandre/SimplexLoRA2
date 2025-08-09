@@ -181,10 +181,11 @@ def get_peft_arguments(args):
             use_rslora=True,
         )
     elif args.ft_strategy == "WeightLoRA":
-        peft_args = peft.WeightLoraConfig(
+        peft_args = peft.LoraConfig(
             r=args.lora_r,
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
+            use_weight_lora=True
         )
     elif args.ft_strategy == "Full":
         return None
@@ -251,6 +252,26 @@ def get_peft_arguments(args):
         raise ValueError(f"Pass target_modules to your model {args.model}")
     return peft_args
 
+def count_remain_adapters(args, model):
+    i = 0
+    remaining_adapters = {}
+    for name, param in model.named_parameters():
+        if "lora_weight" in name:
+            if param.sum().item() > 0 and param.requires_grad:
+                i += 1
+                if "deberta" in args.model:
+                    tmp = name.split(".")
+                    if "attention.self" in name:
+                        layer_name = f"attn_{tmp[8].split('_')[0]}"
+                    elif "attention" in name:
+                        layer_name = f"attn_{tmp[7]}"
+                    else:
+                        layer_name = tmp[6]
+                    load_name = f"{layer_name}#{tmp[5]}"
+                else:
+                    load_name = name
+                remaining_adapters[f"active_adapter_{i}"] = load_name
+    return remaining_adapters
 
 def shuffleDict(d):
     keys = list(d.keys())

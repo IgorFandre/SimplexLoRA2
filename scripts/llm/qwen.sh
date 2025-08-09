@@ -5,7 +5,6 @@ clear
 # Based on the unified fine-tuning architecture
 
 export CUDA_VISIBLE_DEVICES=2
-export HF_AUTH_TOKEN=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
 export TOKENIZERS_PARALLELISM=false
 
 # Default dataset (can be overridden)
