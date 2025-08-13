@@ -125,7 +125,7 @@ def main(args):
             train_metrics["train_samples"] = min(max_train_samples, len(train_dataset))
             train_metrics["train_memory_gb"] = torch.cuda.max_memory_allocated() / 2**30
             train_metrics["train_runtime"] /= 60
-            if args.ft_strategy == "WeightLoRA":
+            if args.ft_strategy in ["WeightLoRA", "SimplexLoRA"]:
                 remain_adapters = utils.count_remain_adapters(args, model)
             train_metrics = train_metrics | remain_adapters
             trainer.save_model()

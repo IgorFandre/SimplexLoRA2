@@ -41,7 +41,8 @@ def parse_args():
             "sgd",
             "adam-sania",
             "muon",
-            "weight_adamw"
+            "weight_adamw",
+            "simplex_adamw"
         ],
     )
     args1, _ = parser1.parse_known_args()
@@ -92,7 +93,7 @@ def parse_args():
     )
     parser.add_argument("--data_path", default="data", help="Path to save the datasets")
 
-    ### Otimizer Arguments
+    ### Optimizer Arguments
     parser.add_argument(
         "--lr", "--learning_rate", default=1e-4, type=float, help="learning rate"
     )  # tuneed param
@@ -141,6 +142,19 @@ def parse_args():
         )
         parser.add_argument(
             "--max_fat_steps", type=int, default=3, help="Projection steps of WeightLoRA"
+        )
+    if args1.optimizer in ["simplex_adamw"]:
+        parser.add_argument(
+            "--simplex_step", type=int, default=5, help="Number of steps between simplex projections"
+        )
+        parser.add_argument(
+            "--lr_w", "--learning_rate_w", default=5.0, type=float, help="learning rate for weight params"
+        )
+        parser.add_argument(
+            "--wd_w", "--weight_decay_w", default=1e-7, type=float, help="weight decay for simplex projections"
+        )
+        parser.add_argument(
+            "--max_simplex_steps", type=int, default=2, help="Projection steps of SimplexLoRA"
         )
 
     ### Problem Specific Arguments

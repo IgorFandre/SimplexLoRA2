@@ -3,10 +3,19 @@ import sys
 
 # from torch_optimizer import Shampoo
 sys.path.append("src/optimizers")
-import soap, adam_sania, muon, diag_hvp, weight_adamw
+import soap, adam_sania, muon, diag_hvp, weight_adamw, simplex_adamw
 
 
 def get_optimizer(args, model):
+    if hasattr(args, "ft_strategy") and \
+        args.ft_strategy == "SimplexLoRA" and \
+            args.optimizer not in ["simplex_adamw"]:
+                raise ValueError("Optimizer must be 'simplex_adamw' when using 'SimplexLoRA' strategy.")
+    if hasattr(args, "ft_strategy") and \
+        args.optimizer in ["simplex_adamw"] and \
+            args.ft_strategy != "SimplexLoRA":
+                raise ValueError("The 'simplex_adamw' optimizer must be used with the 'SimplexLoRA' strategy.")
+
     if hasattr(args, "ft_strategy") and \
         args.ft_strategy == "WeightLoRA" and \
             args.optimizer not in ["weight_adamw"]:
@@ -15,6 +24,7 @@ def get_optimizer(args, model):
         args.optimizer in ["weight_adamw"] and \
             args.ft_strategy != "WeightLoRA":
                 raise ValueError("The 'weight_adamw' optimizer must be used with the 'WeightLoRA' strategy.")
+
     if args.optimizer == "adamw":
         optimizer = optim.AdamW(
             params=model.parameters(),
@@ -65,7 +75,7 @@ def get_optimizer(args, model):
             eps=args.eps,
             update_freq=args.update_freq,
         )
-    elif args.optimizer == "weight_adamw":
+    elif args.optimizer in ["weight_adamw", "simplex_adamw"]:
         weight_params, other_params = [], []
         for name, param in model.named_parameters():
             if not param.requires_grad:
@@ -74,21 +84,41 @@ def get_optimizer(args, model):
                 weight_params.append(param)
             elif "lora_A" in name or "lora_B" in name:
                 other_params.append(param)
-        optimizer = weight_adamw.WeightAdamW(
-            [
-                {"params": other_params, "name": "other_params"},
-                {
-                    "params": weight_params,
-                    "k": args.k,
-                    "proj": weight_adamw.proj_0,
-                    "lr": args.lr_w,
-                    "max_fat_steps": args.max_fat_steps,
-                    "name": "weight_params",
-                },
-            ],
-            lr=args.lr,
-            weight_decay=args.weight_decay,
-        )
+        if args.optimizer == "weight_adamw":
+            optimizer = weight_adamw.WeightAdamW(
+                [
+                    {"params": other_params, "name": "other_params"},
+                    {
+                        "params": weight_params,
+                        "k": args.k,
+                        "proj": weight_adamw.proj_0,
+                        "lr": args.lr_w,
+                        "max_fat_steps": args.max_fat_steps,
+                        "name": "weight_params",
+                    },
+                ],
+                lr=args.lr,
+                weight_decay=args.weight_decay,
+            )
+        elif args.optimizer == "simplex_adamw":
+            optimizer = simplex_adamw.SimplexAdamW(
+                [
+                    {"params": other_params, "name": "other_params"},
+                    {
+                        "params": weight_params,
+                        "proj": simplex_adamw.proj_simplex_euclidean,
+                        "lr": args.learning_rate_w,
+                        "wd": args.weight_decay_w,
+                        "num_adapters": len(other_params),
+                        "simplex_step": args.simplex_step,
+                        "max_simplex_steps": args.max_simplex_steps,
+                        "name": "weight_params",
+                    },
+                ],
+                lr=args.learning_rate,
+                weight_decay=args.weight_decay,
+                lora_r=args.lora_r
+            )
     else:
         raise NotImplementedError(f"Wrong optimizer name {args.optimizer}")
     return optimizer
